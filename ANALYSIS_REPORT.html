@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Analysis Report</title>
+</head>
+<body>
+<h1>Analysis Report: Application Discovery &amp; Architecture Mapping</h1>
+<h2>1. COBOL/CICS Backend</h2>
+<h3>Key COBOL Programs and Their Functions</h3>
+<ul>
+<li><strong>CSACCCRE:</strong> Creates customer and account records.</li>
+<li><strong>CSACCDRD:</strong> Reads customer and account details.</li>
+<li><strong>CSACCHDR:</strong> Handles CICS channel and container management for other programs.</li>
+<li><strong>CSACCIPI:</strong> Main CICS screen interaction program for customer inquiry.</li>
+<li><strong>CSACCUDL:</strong> Deletes customer and account records.</li>
+<li><strong>CSACCUPD:</strong> Updates customer and account records.</li>
+<li><strong>CSAPYCRE:</strong> Creates payment records.</li>
+<li><strong>CSAPYDRD:</strong> Reads payment details.</li>
+<li><strong>CSAPYPST:</strong> Processes (posts) payments.</li>
+<li><strong>CSAPYWLP:</strong> (Likely) Payment &quot;write list&quot; or similar reporting/batch function.</li>
+<li><strong>CSSTATUS:</strong> Checks application status.</li>
+</ul>
+<h3>List of BMS Maps and Their Associations</h3>
+<ul>
+<li><strong>CSMAP01 (CSACCIPI):</strong> Main screen for customer inquiry, account creation, updates, and deletions.
+    <ul>
+    <li>Fields for customer ID, name, address, account number, account type, balance, etc.</li>
+    </ul>
+</li>
+<li><em>(Assumption: Other BMS maps likely exist for payment processing and status display, but are not explicitly detailed in the provided information.)</em></li>
+</ul>
+<h3>Key COBOL Copybooks and Their Purposes</h3>
+<ul>
+<li><strong>CSACC01:</strong> Customer record layout (name, address, ID, etc.). Used by programs handling customer data.</li>
+<li><strong>CSACC02:</strong> Account record layout (account number, type, balance, customer ID link). Used by programs handling account data.</li>
+<li><strong>CSAPY01:</strong> Payment record layout (payment ID, amount, date, account number). Used by payment processing programs.</li>
+<li><strong>CSDAT01:</strong> Date/time related data structures. Used across multiple programs for timestamping or date calculations.</li>
+<li><strong>CSMSG01:</strong> Message structures for screen display or inter-program communication.</li>
+<li><strong>CSHDR01:</strong> Header/common area for CICS channel/container communication. Used by CSACCHDR and programs it calls.</li>
+<li><strong>CSCHS01:</strong> Channel definition for CSACCHDR.</li>
+<li><strong>CSCNT01:</strong> Container definition for CSACCHDR.</li>
+<li><em>(Specific copybooks for VSAM and DB2 record layouts are implicitly defined by their DDL/definitions but might have corresponding COBOL representations, e.g., CUSTREC, ACCTREC, etc.)</em></li>
+</ul>
+<h3>VSAM File Definitions</h3>
+<ul>
+<li><strong>CUSTOMER:</strong>
+    <ul>
+    <li>Stores customer master information.</li>
+    <li>Key: <code>CUSTOMER-ID</code></li>
+    <li>Fields: <code>CUSTOMER-ID</code>, <code>CUSTOMER-NAME</code>, <code>CUSTOMER-ADDRESS</code>, <code>CUSTOMER-PHONE</code>, etc. (as defined in CSACC01).</li>
+    </ul>
+</li>
+<li><strong>ABNDFILE:</strong>
+    <ul>
+    <li>Stores transaction abend/error information.</li>
+    <li>Likely includes fields for transaction ID, error code, timestamp, program name.</li>
+    </ul>
+</li>
+</ul>
+<h3>DB2 Table Definitions</h3>
+<ul>
+<li><strong>ACCOUNT:</strong>
+    <ul>
+    <li><code>ACCOUNT_NUMBER</code> (CHAR(10), Primary Key)</li>
+    <li><code>CUSTOMER_ID</code> (CHAR(8), Foreign Key to CUSTOMER VSAM likely or another table)</li>
+    <li><code>ACCOUNT_TYPE</code> (CHAR(1))</li>
+    <li><code>BALANCE</code> (DECIMAL(10,2))</li>
+    <li><code>OPEN_DATE</code> (DATE)</li>
+    </ul>
+</li>
+<li><strong>PROCTRAN (Transaction Log):</strong>
+    <ul>
+    <li><code>TRANSACTION_ID</code> (CHAR(16), Primary Key)</li>
+    <li><code>ACCOUNT_NUMBER</code> (CHAR(10), Foreign Key to ACCOUNT)</li>
+    <li><code>TRANSACTION_TYPE</code> (CHAR(4)) - e.g., 'PYMT', 'XFER'</li>
+    <li><code>TRANSACTION_AMOUNT</code> (DECIMAL(10,2))</li>
+    <li><code>TRANSACTION_DATE</code> (TIMESTAMP)</li>
+    <li><code>STATUS</code> (CHAR(1)) - e.g., 'P' (Posted), 'F' (Failed)</li>
+    </ul>
+</li>
+<li><strong>CONTROL (Application Control/Configuration):</strong>
+    <ul>
+    <li><code>PROCESS_DATE</code> (DATE)</li>
+    <li><code>LAST_TRAN_ID</code> (CHAR(16))</li>
+    <li><code>SYSTEM_STATUS</code> (CHAR(1)) - e.g., 'A' (Active), 'M' (Maintenance)</li>
+    </ul>
+</li>
+</ul>
+<h3>Conceptual COBOL Program Interaction Flow</h3>
+<pre><code>
+                                     +-----------------+
+                                     |  User/Terminal  |
+                                     +--------+--------+
+                                              | (CSMAP01)
+                                     +--------V--------+
+                                     |   CSACCIPI      | (Main Screen Handler)
+                                     +--------+--------+
+                                              |
+                  +---------------------------+---------------------------+
+                  | (Read, Create, Update, Delete requests)              |
+                  |                                                     |
+          +-------V-------+      +-------V-------+      +-------V-------+      +-------V-------+
+          |   CSACCDRD    |      |   CSACCCRE    |      |   CSACCUPD    |      |   CSACCUDL    |
+          | (Read Cust/Acct)|      | (Create Cust/Acct)|      | (Update Cust/Acct)|      | (Delete Cust/Acct)|
+          +-------+-------+      +-------+-------+      +-------+-------+      +-------+-------+
+                  |                      |                      |                      |
+                  | (Uses CSACCHDR for   | (Uses CSACCHDR for   | (Uses CSACCHDR for   | (Uses CSACCHDR for
+                  |  channel comms)      |  channel comms)      |  channel comms)      |  channel comms)
+                  |                      |                      |                      |
+      +-----------+-----------+  +---------+---------+  +---------+---------+  +---------+---------+
+      | VSAM (CUSTOMER)       |  | DB2 (ACCOUNT)     |  | DB2 (PROCTRAN)    |  | VSAM (ABNDFILE)   |
+      | DB2 (ACCOUNT)         |  | VSAM (CUSTOMER)   |  | DB2 (ACCOUNT)     |  | (Error Logging)   |
+      +-----------------------+  +-------------------+  +-------------------+  +-------------------+
+
+Payment Processing Flow (Simplified):
+
++-----------------+      +-----------------+      +-----------------+      +-----------------+
+|   CSAPYCRE      |----->|   CSAPYDRD      |----->|   CSAPYPST      |----->|   CSAPYWLP      |
+| (Create Payment)|      | (Read Payment)  |      | (Post Payment)  |      | (List Payments) |
++-----------------+      +-----------------+      +-----------------+      +-----------------+
+        |                      |                      |
+        | (DB2 - PROCTRAN,     | (DB2 - PROCTRAN,     | (DB2 - PROCTRAN,
+        |  ACCOUNT)            |  ACCOUNT)            |  ACCOUNT, CONTROL)
+        +----------------------+----------------------+
+</code></pre>
+<h2>2. z/OS Connect Layer</h2>
+<h3>List of Defined z/OS Connect APIs</h3>
+<ul>
+<li><code>customerapi</code></li>
+<li><code>paymentapi</code></li>
+<li><code>statusapi</code></li>
+<li><em>(Specific endpoint example: <code>creacc</code> under <code>customerapi</code>)</em></li>
+</ul>
+<h3>Summary of a Sample API (e.g., <code>creacc</code> from <code>customerapi</code>)</h3>
+<ul>
+<li><strong>API Name:</strong> <code>customerapi</code></li>
+<li><strong>Endpoint:</strong> <code>/customers/create</code> (Method: POST) - <em>Derived from <code>creacc</code> and typical REST conventions.</em></li>
+<li><strong>Request Structure (JSON):</strong>
+<pre><code class="language-json">{
+  &quot;customerName&quot;: &quot;John Doe&quot;,
+  &quot;customerAddress&quot;: &quot;123 Main St&quot;,
+  &quot;accountType&quot;: &quot;S&quot; // Savings
+  // ... other fields from CSACC01 and CSACC02 needed for creation
+}
+</code></pre>
+</li>
+<li><strong>Response Structure (JSON):</strong>
+<pre><code class="language-json">{
+  &quot;customerId&quot;: &quot;CUST0001&quot;,
+  &quot;accountNumber&quot;: &quot;ACC1234567&quot;,
+  &quot;status&quot;: &quot;Customer and account created successfully.&quot;
+  // ... potentially other details
+}
+</code></pre>
+</li>
+</ul>
+<h3>List of z/OS Connect Services</h3>
+<ul>
+<li><code>CSacccreService</code> (maps to <code>creacc</code> API endpoint)</li>
+<li><code>CSaccdrdService</code> (maps to an account read API endpoint)</li>
+<li><code>CSaccupdService</code> (maps to an account update API endpoint)</li>
+<li><code>CSaccdeleteService</code> (maps to an account delete API endpoint)</li>
+<li><code>CSapypstService</code> (maps to a payment post API endpoint)</li>
+<li><code>CSstatusService</code> (maps to a status check API endpoint)</li>
+</ul>
+<h3>Details of a Sample Service (e.g., <code>CSacccreService</code>)</h3>
+<ul>
+<li><strong>Service Name:</strong> <code>CSacccreService</code></li>
+<li><strong>Linked COBOL Program:</strong> <code>CSACCCRE</code></li>
+<li><strong>Purpose:</strong> Exposes the functionality of the <code>CSACCCRE</code> COBOL program (creating customer and account records) as a callable service for the <code>creacc</code> API endpoint.</li>
+<li><strong>Data Transformation:</strong> z/OS Connect handles the transformation of JSON request data to the format expected by <code>CSACCCRE</code> (likely using copybooks like <code>CSACC01</code>, <code>CSACC02</code>, and <code>CSHDR01</code> for channel/container structures) and transforms the COBOL output back into a JSON response.</li>
+</ul>
+<h3>Overall Mapping Table: API -&gt; z/OS Connect Service -&gt; COBOL Program -&gt; Copybook</h3>
+<table>
+<thead>
+<tr>
+<th>API Endpoint (Example)</th>
+<th>z/OS Connect Service</th>
+<th>COBOL Program</th>
+<th>Key Copybooks Used (Request/Response)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>POST /customers/create (<code>creacc</code>)</td>
+<td><code>CSacccreService</code></td>
+<td><code>CSACCCRE</code></td>
+<td><code>CSACC01</code>, <code>CSACC02</code>, <code>CSHDR01</code></td>
+</tr>
+<tr>
+<td>GET /customers/{id}</td>
+<td><code>CSaccdrdService</code></td>
+<td><code>CSACCDRD</code></td>
+<td><code>CSACC01</code>, <code>CSACC02</code>, <code>CSHDR01</code></td>
+</tr>
+<tr>
+<td>PUT /customers/{id}</td>
+<td><code>CSaccupdService</code></td>
+<td><code>CSACCUPD</code></td>
+<td><code>CSACC01</code>, <code>CSACC02</code>, <code>CSHDR01</code></td>
+</tr>
+<tr>
+<td>DELETE /customers/{id}</td>
+<td><code>CSaccdeleteService</code></td>
+<td><code>CSACCUDL</code></td>
+<td><code>CSACC01</code>, <code>CSACC02</code>, <code>CSHDR01</code></td>
+</tr>
+<tr>
+<td>POST /payments/post</td>
+<td><code>CSapypstService</code></td>
+<td><code>CSAPYPST</code></td>
+<td><code>CSAPY01</code>, <code>CSHDR01</code></td>
+</tr>
+<tr>
+<td>GET /status</td>
+<td><code>CSstatusService</code></td>
+<td><code>CSSTATUS</code></td>
+<td><code>CSMSG01</code> (potentially)</td>
+</tr>
+</tbody>
+</table>
+<h2>3. Java Services (Spring Boot/Liberty) - Initial Findings</h2>
+<h3>Summary of <code>pom.xml</code> Analysis</h3>
+<ul>
+<li><strong><code>Z-OS-Connect-Customer-Services-Interface</code> (<code>customerservices</code>):</strong>
+    <ul>
+    <li><strong>Key Frameworks/Dependencies:</strong> Spring Boot (web, jaxrs), IBM z/OS Connect client (<code>com.ibm.zosconnect.client</code>), JSON processing (e.g., Jackson).</li>
+    <li><strong>Purpose:</strong> Acts as a client to the z/OS Connect <code>customerapi</code>. It provides a Java-based interface (likely RESTful services) for other applications (like <code>webui</code>) to interact with customer data on the mainframe without directly calling z/OS Connect.</li>
+    <li><strong>Deployment:</strong> Likely deployed as a CICS Liberty bundle or standalone Liberty application.</li>
+    </ul>
+</li>
+<li><strong><code>Z-OS-Connect-Payment-Interface</code> (<code>paymentservices</code>):</strong>
+    <ul>
+    <li><strong>Key Frameworks/Dependencies:</strong> Similar to <code>customerservices</code> - Spring Boot (web, jaxrs), IBM z/OS Connect client, JSON processing.</li>
+    <li><strong>Purpose:</strong> Acts as a client to the z/OS Connect <code>paymentapi</code>. Provides a Java-based interface for payment-related operations.</li>
+    <li><strong>Deployment:</strong> Likely deployed as a CICS Liberty bundle or standalone Liberty application.</li>
+    </ul>
+</li>
+<li><strong><code>webui</code>:</strong>
+    <ul>
+    <li><strong>Key Frameworks/Dependencies:</strong> Spring Boot (web, thymeleaf/jsp for UI rendering), Spring Security, common web application libraries.</li>
+    <li><strong>Purpose:</strong> Provides the user interface for the application. It interacts with <code>customerservices</code> and <code>paymentservices</code> to display data and submit user requests.</li>
+    <li><strong>Deployment:</strong> Likely deployed as a standalone Spring Boot application or a WAR file on a Liberty server.</li>
+    </ul>
+</li>
+</ul>
+<h3>Initial Understanding of Their Purpose and Deployment</h3>
+<ul>
+<li>The Java services (<code>customerservices</code>, <code>paymentservices</code>) abstract the complexities of z/OS Connect interactions, offering a more modern, Java-native interface (likely REST APIs) to consumer applications like <code>webui</code>.</li>
+<li>They are designed to run on Liberty, potentially within CICS using CICS Liberty bundles for closer integration with the mainframe environment if needed, or as standalone Liberty applications.</li>
+<li>This architecture promotes a separation of concerns, where the <code>webui</code> handles presentation, the Java interface services handle API aggregation/mediation, and z/OS Connect handles the direct mainframe integration.</li>
+</ul>
+<h3>Brief Overview of the Source Structure for <code>customerservices</code></h3>
+<ul>
+<li><strong><code>src/main/java/.../controllers</code>:</strong>
+    <ul>
+    <li>Contains Spring MVC/JAX-RS controllers that define the REST API endpoints for customer operations (e.g., <code>CustomerController.java</code>).</li>
+    <li>These controllers would use the z/OS Connect client to make calls to the <code>customerapi</code> on z/OS Connect.</li>
+    </ul>
+</li>
+<li><strong><code>src/main/java/.../jsonclasses</code> (or <code>model</code>, <code>dto</code>):</strong>
+    <ul>
+    <li>Contains Plain Old Java Objects (POJOs) that represent the JSON request and response structures for the APIs provided by <code>customerservices</code>.</li>
+    <li>These classes are used for serializing/deserializing JSON data.</li>
+    </ul>
+</li>
+<li><em>(Other typical Spring Boot directories like <code>src/main/resources</code> for configuration (<code>application.properties</code>), <code>static</code> for web assets if any, etc.)</em></li>
+</ul>
+</body>
+</html>
